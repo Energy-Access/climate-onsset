@@ -1,48 +1,36 @@
-onsset : Open Source Spatial Electrification Tool
+# Climate-OnSSET  
+**A climate-risk–aware extension of OnSSET for resilient electrification planning**
 =================================================
 
-[![PyPI version](https://badge.fury.io/py/onsset.svg)](https://badge.fury.io/py/onsset)
-[![Build Status](https://travis-ci.com/OnSSET/onsset.svg?branch=master)](https://travis-ci.com/OnSSET/onsset)
-[![Coverage Status](https://coveralls.io/repos/github/OnSSET/onsset/badge.svg?branch=master)](https://coveralls.io/github/OnSSET/onsset?branch=master)
-[![Documentation Status](https://readthedocs.org/projects/onsset/badge/?version=latest)](https://onsset.readthedocs.io/en/latest/?badge=latest)
+Current geospatial energy access planning models do not systematically integrate climate risk metrics into spatial electrification strategies. This gap can lead to pathways that unintentionally favor areas with lower climate vulnerability, while communities already exposed to climate hazards remain underserved and lack access to resilient energy solutions. At the same time, intensifying extreme weather events present direct and escalating threats to the physical infrastructure needed to supply electricity, further jeopardizing reliable energy access for the very populations most at risk.
 
-# Scope
+## 🌍 What this fork adds
 
-This repository contains the source code of the Open Source Spatial Electrification Tool
-[OnSSET](https://www.linkedin.com/company/onsset-open-source-spatial-electrification-tool/).
+Climate-OnSSET augments the standard OnSSET workflow with:
 
-OnSSET can be run using interactive Jupyter Notebooks. First, the input file with GIS data extracted for each settlement should be created using the codes in the [OnSSET_GIS_Extraction_notebook repository](https://github.com/OnSSET/OnSSET_GIS_Extraction_notebook).
 
-Next, run the *Calibration.ipynb* to calibrate the start year information.
+## 🔗 Relationship to OnSSET
 
-Finally, run the *OnSSET_Scenarios.ipynb*, or the *OnSSET_Scenarios_MultipleTimeSteps.ipynb* if you want to run the code in multiple time-steps.
+This repository is a fork of the original OnSSET model, but it introduces a **fundamental change in planning objective**.
 
-## Installation
+While standard OnSSET identifies least-cost electrification pathways based primarily on techno-economic optimization (LCOE minimization), Climate-OnSSET extends the framework to incorporate **climate vulnerability and risk exposure as planning priorities**.
+
+In this fork, electrification strategies are not evaluated on cost alone. Instead, the model supports analysis that can prioritize settlements and technologies based on **climate risk, vulnerability, and resilience considerations**, alongside economic performance.
+
+This represents a shift from purely cost-optimal electrification planning toward **risk-informed and resilience-oriented electrification strategies**.
+
+Beyond adjusting techno-economic parameters, this fork introduces new approaches for **prioritizing electrification in climate-vulnerable areas**, enabling analysis that balances cost, risk, and resilience.
+
+## Data 
 
 OnSSET is run using Python, most easily through Jupyter Notebook, but can also be run using another Python IDE.
 It is recommended to install OnSSET using Anaconda. 
 
-### Install with the yml-file
+### 
 
-1. Download or clone the repository.
 
-2. Open Anaconda prompt. Navigate to the folder where the OnSSET code is installed.
-
-3. Install all the packages required in a new environment called "OnSSET" using: 
-
-```
-conda env create -n OnSSET -f onsset_env.yml
-```
-4. Activate the environment using:
-```
-conda activate OnSSET
-```
-5. Finally, to run OnSSET using Jupyter Notebook, run the following command:
-```
-jupyter notebook
 ```
    
 
 ## Contact
-For more information regarding the tool, its functionality and implementation
-please visit OnSSET on LinkedIn or go to the [OnSSET forum](https://www.linkedin.com/company/onsset-open-source-spatial-electrification-tool/](https://forum.u4ria.org/c/onsset/)).
+For more information regarding the tool contact tatiana.grandon@ntnu.no, sondrmsk@stud.ntnu.no or jens.e.skaug@ntnu.no. 
