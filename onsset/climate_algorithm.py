@@ -749,7 +749,7 @@ def map_risk_to_settlements(
     settlements_df[SET_ADMIN3_ID] = gdf_join[admin3_id_col].values
 
     # Merge hazard scores
-    hazard_cols = [c for c in risk_df.columns if str(c).lower().endswith('_hazard')]
+    hazard_cols = [c for c in risk_df.columns if str(c).lower().endswith('_hazard') and c != 'compound_hazard']
     merge_cols = [admin3_id_col]
     if admin3_name_col in risk_df.columns:
         merge_cols.append(admin3_name_col)
