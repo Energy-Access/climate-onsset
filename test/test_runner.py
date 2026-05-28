@@ -14,10 +14,23 @@ import os
 from shutil import copyfile
 from tempfile import TemporaryDirectory
 
+import pytest
+
 from onsset.runner import calibration, scenario
 
 
-def run_analysis(tmpdir):
+def _regression_fixture_paths():
+    pv_path = os.path.join('test', 'test_data', 'pv_test.csv')
+    wind_path = os.path.join('test', 'test_data', 'wind_test.csv')
+    mv_path = os.path.join('test', 'test_data', 'mv_lines_test.csv')
+
+    if not all(os.path.exists(path) for path in [pv_path, wind_path, mv_path]):
+        return None
+
+    return pv_path, wind_path, mv_path
+
+
+def run_analysis(tmpdir, pv_path, wind_path, mv_path):
     """
 
     Arguments
@@ -39,7 +52,15 @@ def run_analysis(tmpdir):
 
     calibration(specs_path, csv_path, specs_path_calib, calibrated_csv_path)
 
-    scenario(specs_path_calib, calibrated_csv_path, tmpdir, tmpdir)
+    scenario(
+        specs_path_calib,
+        calibrated_csv_path,
+        tmpdir,
+        tmpdir,
+        pv_path=pv_path,
+        wind_path=wind_path,
+        mv_path=mv_path,
+    )
 
     actual = os.path.join(tmpdir, 'dj-1-1_1_1_1_0_0_summary.csv')
     expected = os.path.join('test', 'test_results', 'expected_summary.csv')
@@ -59,7 +80,10 @@ def test_regression_summary():
     """
 
     with TemporaryDirectory() as tmpdir:
-        summary, full = run_analysis(tmpdir)
+        fixture_paths = _regression_fixture_paths()
+        if fixture_paths is None:
+            pytest.skip("Regression fixtures missing — see A5 example dataset")
+        summary, full = run_analysis(tmpdir, *fixture_paths)
 
     assert summary
     assert full
@@ -70,7 +94,12 @@ def update_test_file():
     """
     tmpdir = '.'
 
-    summary, actual = run_analysis(tmpdir)
+    fixture_paths = _regression_fixture_paths()
+    if fixture_paths is None:
+        print("Regression fixtures missing — see A5 example dataset")
+        return
+
+    summary, actual = run_analysis(tmpdir, *fixture_paths)
 
     actual = os.path.join(tmpdir, 'dj-1-1_1_1_1_0_0_summary.csv')
     expected = os.path.join('test', 'test_results', 'expected_summary.csv')
