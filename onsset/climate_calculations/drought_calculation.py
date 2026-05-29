@@ -50,7 +50,6 @@ CONFIG_SCHEMA = {
         'spi_baseline_start':     ('SPIBaselineStartYear',      1950),
         'spi_baseline_end':       ('SPIBaselineEndYear',        2000),
         'precip_column':          ('PrecipitationColumnName',   'tp_mm_month'),
-        'spi_drought_threshold':  ('SPIDroughtThreshold',      -1.0),
         'spi_mild_threshold':     ('SPIMildThreshold',         -1.5),
         'spi_moderate_threshold': ('SPIModerateThreshold',     -2.0),
         'spi_severe_threshold':   ('SPISevereThreshold',       -2.5),
@@ -261,7 +260,7 @@ def calculate_spi_drought_risk(
         detected_columns: Dict mapping standard names to actual column names.
 
     Returns:
-        DataFrame with columns: admin3_id, admin3_name, drought_risk (0-1)
+        DataFrame with columns: admin3_id, admin3_name, drought_risk (0-1), drought_intensity
     """
     logger.info("Calculating SPI drought risk...")
 
@@ -274,7 +273,7 @@ def calculate_spi_drought_risk(
 
     if precip_col is None or precip_col not in climate_df.columns:
         logger.warning("No precipitation column found, skipping drought calculation")
-        return pd.DataFrame(columns=[admin3_id_col, admin3_name_col, 'drought_risk'])
+        return pd.DataFrame(columns=[admin3_id_col, admin3_name_col, 'drought_risk', 'drought_intensity'])
 
     # Parse dates
     df = climate_df.copy()
@@ -294,7 +293,7 @@ def calculate_spi_drought_risk(
         detected_columns['date'] = 'date'
     else:
         logger.warning("No date column and no year/month columns found, skipping drought calculation")
-        return pd.DataFrame(columns=[admin3_id_col, admin3_name_col, 'drought_risk'])
+        return pd.DataFrame(columns=[admin3_id_col, admin3_name_col, 'drought_risk', 'drought_intensity'])
 
     # Compute SPI per grid cell
     spi_scale = int(config['spi_scale'])
@@ -340,7 +339,7 @@ def calculate_spi_drought_risk(
 
     if not cell_rows:
         logger.warning("No SPI computed for any cell")
-        return pd.DataFrame(columns=[admin3_id_col, admin3_name_col, 'drought_risk'])
+        return pd.DataFrame(columns=[admin3_id_col, admin3_name_col, 'drought_risk', 'drought_intensity'])
 
     cell_spi = pd.concat(cell_rows, ignore_index=True)
     logger.info(f"Total SPI records (cell-level): {len(cell_spi):,}")
@@ -369,13 +368,6 @@ def calculate_spi_drought_risk(
         .mean()
         .rename(columns={'spi': 'spi_region_mean'})
     )
-    df_reg_month['year'] = df_reg_month['date'].dt.year
-
-    # Get thresholds
-    drought_threshold = config['spi_drought_threshold']
-    mild_threshold = config['spi_mild_threshold']
-    moderate_threshold = config['spi_moderate_threshold']
-    severe_threshold = config['spi_severe_threshold']
 
     # Calculate drought stats per region
     regions = admin3_gdf[[admin3_id_col, admin3_name_col]].drop_duplicates().reset_index(drop=True)
@@ -386,59 +378,26 @@ def calculate_spi_drought_risk(
         name = reg[admin3_name_col]
 
         df_r = df_reg_month[df_reg_month[admin3_id_col] == gid].copy()
-        if df_r.empty:
-            stats_rows.append({
-                admin3_id_col: gid,
-                admin3_name_col: name,
-                'years_with_data': 0,
-                'drought_years_total': 0,
-                'frac_drought_years': 0,
-            })
-            continue
-
-        years_present = sorted(df_r['year'].unique())
-        drought_years = 0
-
-        for year in years_present:
-            df_y = df_r[df_r['year'] == year]
-            if df_y.empty:
-                continue
-
-            min_spi = df_y['spi_region_mean'].min()
-            if np.isnan(min_spi):
-                continue
-
-            if min_spi <= drought_threshold:
-                drought_years += 1
-
-        years_with_data = len(years_present)
-        frac_drought = drought_years / years_with_data if years_with_data > 0 else 0
+        spi_series = df_r['spi_region_mean'].dropna()
+        if spi_series.empty:
+            drought_intensity = np.nan
+        else:
+            drought_intensity = -spi_series.mean()
 
         stats_rows.append({
             admin3_id_col: gid,
             admin3_name_col: name,
-            'years_with_data': years_with_data,
-            'drought_years_total': drought_years,
-            'frac_drought_years': frac_drought,
+            'drought_intensity': drought_intensity,
         })
 
     df_stats = pd.DataFrame(stats_rows)
 
     if df_stats.empty:
         logger.warning("No drought stats computed")
-        return pd.DataFrame(columns=[admin3_id_col, admin3_name_col, 'drought_risk'])
+        return pd.DataFrame(columns=[admin3_id_col, admin3_name_col, 'drought_risk', 'drought_intensity'])
 
-    # Normalize to 0-1 risk score using min-max normalization
-    # NOTE: Using min-max normalization. Consider revisiting for percentile-based approach.
-    min_val = df_stats['frac_drought_years'].min()
-    max_val = df_stats['frac_drought_years'].max()
+    df_stats['drought_risk'] = df_stats['drought_intensity'].rank(method='average', pct=True).fillna(0)
 
-    if max_val > min_val:
-        df_stats['drought_risk'] = (df_stats['frac_drought_years'] - min_val) / (max_val - min_val)
-    else:
-        df_stats['drought_risk'] = 0.0
+    logger.info(f"Computed drought risk (percentile rank of mean monthly SPI) for {len(df_stats)} regions")
 
-    logger.info(f"Computed drought risk for {len(df_stats)} regions")
-
-    return df_stats[[admin3_id_col, admin3_name_col, 'drought_risk',
-                     'drought_years_total', 'frac_drought_years']]
+    return df_stats[[admin3_id_col, admin3_name_col, 'drought_risk', 'drought_intensity']]
