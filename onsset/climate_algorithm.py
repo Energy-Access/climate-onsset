@@ -202,7 +202,8 @@ def discover_hazard_modules() -> List[Any]:
 
     A hazard module is considered valid if it exposes:
       - HAZARD_NAME (str)
-      - calculate_hazard(loader, admin3_gdf, config, detected_columns) -> DataFrame
+            - load_input(loader) -> Any
+            - calculate_hazard(input_data, admin3_gdf, config, detected_columns) -> DataFrame
     CONFIG_SCHEMA and WEIGHT_KEY are optional.
     """
     pkg = None
@@ -241,7 +242,11 @@ def discover_hazard_modules() -> List[Any]:
             logger.warning(f"Failed to import hazard module '{full_name}': {e}")
             continue
 
-        if not hasattr(module, 'HAZARD_NAME') or not hasattr(module, 'calculate_hazard'):
+        if (
+            not hasattr(module, 'HAZARD_NAME')
+            or not hasattr(module, 'load_input')
+            or not hasattr(module, 'calculate_hazard')
+        ):
             continue
         modules.append(module)
 
@@ -988,7 +993,8 @@ def process_climate_data(
             df = pd.read_csv(cache_path)
         else:
             logger.info(f"Running hazard module: {hazard_name}")
-            df = module.calculate_hazard(loader, admin3_gdf, config, detected_columns)
+            input_data = module.load_input(loader)
+            df = module.calculate_hazard(input_data, admin3_gdf, config, detected_columns)
             if precomputed_hazards_folder is not None:
                 df.to_csv(cache_path, index=False)
                 logger.info(f"Saved cached hazard CSV for {hazard_name}: {cache_path}")

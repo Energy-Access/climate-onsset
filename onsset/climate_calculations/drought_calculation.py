@@ -10,7 +10,7 @@ this module. The compound risk combination happens in climate_algorithm.py.
 """
 
 import logging
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 import numpy as np
@@ -59,8 +59,20 @@ CONFIG_SCHEMA = {
 }
 
 
+def load_input(loader) -> Any:
+    if not hasattr(loader, 'has_monthly_precip_data') or not loader.has_monthly_precip_data():
+        raise ValueError(
+            "Drought hazard requires monthly precipitation data. "
+            "Ensure climate files are detectable as monthly precipitation."
+        )
+    monthly_precip_df = loader.load_monthly_precip_files()
+    if monthly_precip_df.empty:
+        raise ValueError("Drought hazard requires monthly precipitation data, but none was loaded.")
+    return monthly_precip_df
+
+
 def calculate_hazard(
-    loader: 'ClimateDataLoader',
+    monthly_precip_df: pd.DataFrame,
     admin3_gdf: gpd.GeoDataFrame,
     config: Dict,
     detected_columns: Dict[str, str],
@@ -77,16 +89,6 @@ def calculate_hazard(
     """
     admin3_id_col = config['admin3_id_column']
     admin3_name_col = config['admin3_name_column']
-
-    if not hasattr(loader, 'has_monthly_precip_data') or not loader.has_monthly_precip_data():
-        raise ValueError(
-            "Drought hazard requires monthly precipitation data. "
-            "Ensure climate files are detectable as monthly precipitation (by filename keywords or content)."
-        )
-
-    monthly_precip_df = loader.load_monthly_precip_files()
-    if monthly_precip_df.empty:
-        raise ValueError('Drought hazard requires monthly precipitation data, but none was loaded.')
 
     df_risk = calculate_spi_drought_risk(monthly_precip_df, admin3_gdf, config, detected_columns)
     if df_risk.empty or 'drought_risk' not in df_risk.columns:
