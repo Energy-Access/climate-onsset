@@ -19,3 +19,11 @@ Copy `drought_hazard.csv` and `heatwave_hazard.csv` into `onsset/climate_calcula
 ## To run
 Open `2. OnSSET_Scenarios_MultipleTimeSteps.ipynb`, edit the User-editable paths
 cell to point at the files above, set `prio_choice = 6`, run all.
+
+## Cache freshness
+
+The notebooks default to `climate_folder=None` and load cached per-hazard CSVs from `onsset/climate_calculations/precomputed_hazards/`. Cache files have no automatic invalidation: if hazard module logic changes (e.g., normalization), cached CSVs become stale silently. All subsequent runs use outdated values. To force recomputation, delete the per-hazard CSVs from `precomputed_hazards/` and set `climate_folder` to a folder containing raw climate data CSVs.
+
+## Input structure:
+
+In the notebooks, change the file paths to wherever you want
