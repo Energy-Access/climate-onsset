@@ -727,6 +727,16 @@ def map_risk_to_settlements(
     admin3_id_col = config['admin3_id_column']
     admin3_name_col = config['admin3_name_column']
 
+    # Idempotency: if this function is called multiple times on the same
+    # settlements_df (e.g. in a live notebook kernel), drop columns that will be
+    # re-added to prevent GeoPandas/pandas merge suffix collisions.
+    settlements_df = settlements_df.drop(
+        columns=[admin3_id_col, admin3_name_col, SET_ADMIN3_ID],
+        errors='ignore',
+    )
+    hazard_like = [c for c in settlements_df.columns if str(c).lower().endswith('_hazard')]
+    settlements_df = settlements_df.drop(columns=hazard_like, errors='ignore')
+
     # Convert settlements to GeoDataFrame
     gdf_settlements = gpd.GeoDataFrame(
         settlements_df,

@@ -110,6 +110,27 @@ def test_neutral_vulnerability_opt_in():
     ).all()
 
 
+def test_map_risk_idempotent():
+    settlements_df, risk_df, admin3_gdf, config = _build_inputs()
+
+    first = map_risk_to_settlements(
+        settlements_df.copy(),
+        risk_df,
+        admin3_gdf,
+        config,
+    )
+
+    second = map_risk_to_settlements(
+        first.copy(),
+        risk_df,
+        admin3_gdf,
+        config,
+    )
+
+    assert SET_CLIMATE_PRIORITY in second.columns
+    assert np.isclose(second[SET_CLIMATE_PRIORITY], first[SET_CLIMATE_PRIORITY]).all()
+
+
 def test_compound_hazard_pipeline():
     settlements_df, _, admin3_gdf, config = _build_inputs()
 
