@@ -13,6 +13,9 @@ Inputs for running OnSSET multi-timestep scenarios with `prio_choice=6`
 
 Both input files include `NormalizedRelativeWealth` and `NormalizedTravelHours`, which `prio_choice = 6` requires (see the main README).
 
+### Large input files (download separately)
+`GEP-OnSSET_InputFile.csv` (141 MB) and `OnSSET_InputFile_Calibrated.csv` (99 MB) exceed GitHub's 100 MB per-file limit and are not tracked in this repo. Download them from the [example-data release](https://github.com/Energy-Access/climate-onsset/releases/tag/niger_example_workflow-data-v0.1) and place them in this folder before running the notebooks.
+
 ## Cached hazards
 Copy `drought_hazard.csv` and `heatwave_hazard.csv` into `onsset/climate_calculations/precomputed_hazards/` to run without raw climate data. Delete them from `precomputed_hazards/` to force recomputation.
 
