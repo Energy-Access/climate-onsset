@@ -748,14 +748,10 @@ def map_risk_to_settlements(
     # Add admin3 ID to settlements
     settlements_df[SET_ADMIN3_ID] = gdf_join[admin3_id_col].values
 
-    # Merge hazard scores
-    hazard_cols = [c for c in risk_df.columns if str(c).lower().endswith('_hazard') and c != 'compound_hazard']
-    merge_cols = [admin3_id_col]
-    if admin3_name_col in risk_df.columns:
-        merge_cols.append(admin3_name_col)
-    if 'compound_hazard' in risk_df.columns:
-        merge_cols.append('compound_hazard')
-    merge_cols.extend(hazard_cols)
+    # Merge all non-key columns from risk_df (includes compound_hazard and per-hazard columns).
+    # Avoid suffix-matching so future derived *_hazard columns don't get misclassified.
+    key_cols = [admin3_id_col] + ([admin3_name_col] if admin3_name_col in risk_df.columns else [])
+    merge_cols = key_cols + [c for c in risk_df.columns if c not in key_cols]
 
     settlements_df = settlements_df.merge(
         risk_df[merge_cols],
