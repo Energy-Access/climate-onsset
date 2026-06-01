@@ -238,3 +238,33 @@ def test_process_climate_data_with_cached_hazards(tmp_path):
         result[SET_CLIMATE_PRIORITY],
         result[SET_CLIMATE_HAZARD] * result[SET_CLIMATE_VULNERABILITY],
     ).all()
+
+
+def test_vulnerability_and_priority_formulas_pin_to_expected_values():
+    """Pin ClimateVulnerability = ((1 - wealth) + travel) / 2 and
+    ClimatePriority = ClimateHazard * ClimateVulnerability to hand-computed values."""
+    settlements_df, risk_df, admin3_gdf, config = _build_inputs()
+
+    # Override vulnerability inputs with values whose expected outputs we know.
+    # Vulnerability formula: ((1 - NormalizedRelativeWealth) + NormalizedTravelHours) / 2
+    settlements_df = settlements_df.copy()
+    settlements_df['NormalizedRelativeWealth'] = [0.05, 0.25, 0.55, 0.85, 0.15, 0.95]
+    settlements_df['NormalizedTravelHours']    = [0.90, 0.70, 0.40, 0.10, 0.80, 0.20]
+
+    expected_vulnerability = np.array([
+        0.925,  # ((1 - 0.05) + 0.90) / 2
+        0.725,  # ((1 - 0.25) + 0.70) / 2
+        0.425,  # ((1 - 0.55) + 0.40) / 2
+        0.125,  # ((1 - 0.85) + 0.10) / 2
+        0.825,  # ((1 - 0.15) + 0.80) / 2
+        0.125,  # ((1 - 0.95) + 0.20) / 2
+    ])
+
+    result = map_risk_to_settlements(settlements_df, risk_df, admin3_gdf, config)
+
+    assert np.allclose(result[SET_CLIMATE_VULNERABILITY].to_numpy(), expected_vulnerability, rtol=1e-9)
+    assert np.allclose(
+        result[SET_CLIMATE_PRIORITY].to_numpy(),
+        result[SET_CLIMATE_HAZARD].to_numpy() * expected_vulnerability,
+        rtol=1e-9,
+    )
