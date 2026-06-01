@@ -21,6 +21,7 @@ import logging
 import importlib
 import pkgutil
 import fnmatch
+import warnings
 from enum import Enum
 from typing import List, Dict, Optional, Tuple, Generator, Iterable, Any
 from collections import defaultdict
@@ -808,12 +809,17 @@ def map_risk_to_settlements(
             if not allow_neutral_vulnerability:
                 raise ValueError(
                     "Missing required vulnerability columns: NormalizedRelativeWealth, NormalizedTravelHours "
-                    "(values in [0, 1]). See README section 'Climate prioritization' for details and aliases. "
+                    "(values in [0, 1]). See Climate_README.md for details and accepted column aliases. "
                     "Pass allow_neutral_vulnerability=True to use a flat 0.5 fallback."
                 )
             # Fallback: if wealth/travel missing, set vulnerability to neutral (0.5)
             vulnerability_values = pd.Series(0.5, index=settlements_df.index)
-            logger.warning("Wealth or travel columns not found; using neutral vulnerability value 0.5")
+            warnings.warn(
+                "Wealth or travel columns not found; using neutral vulnerability value 0.5. "
+                "ClimatePriority will be proportional to Hazard only.",
+                UserWarning,
+                stacklevel=2,
+            )
             settlements_df[SET_CLIMATE_VULNERABILITY] = vulnerability_values
 
         # Compute Climate Priority: Hazard × Vulnerability
