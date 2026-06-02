@@ -53,7 +53,7 @@ Both columns express relative position within the country, scaled to [0, 1]. A t
 
 1. **Wealth source.** [Relative Wealth Index](https://data.humdata.org/dataset/relative-wealth-index) from HDX (Meta's RWI estimates, ~2.4 km grid). Sample at each settlement's lat/lon centroid.
 
-2. **Travel source.** [Travel time to nearest city](https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/YKDWJD) from Harvard Dataverse. Sample at each settlement's lat/lon centroid.
+2. **Travel source.** OnSSET's standard `TravelHours` column is the source — no external sampling needed. Just normalize it to [0, 1] per country (min-max or percentile rank) and write the result back.
 
 3. **Normalize to [0, 1] per country.** Min-max scaling is the simplest:
 Percentile rank works equally well.
