@@ -5,6 +5,8 @@ import geopandas as gpd
 import pandas as pd
 import pytest
 from shapely.geometry import Polygon
+from onsset.climate_calculations import drought_calculation
+from scipy.stats import gamma, norm
 
 
 def _build_drought_inputs(avg_precip_by_admin, *, start='2000-01-01', months=60):
@@ -137,3 +139,73 @@ def test_drought_percentile_rank_distribution():
     values_sorted = np.sort(result['drought_hazard'].to_numpy(dtype=float))
     expected = np.linspace(1.0 / 5.0, 1.0, 5)
     assert np.isclose(values_sorted, expected, rtol=1e-6, atol=0).all()
+
+
+def test_spi_math_matches_scipy_reference():
+    """Pin the SPI transform in ``_compute_spi_for_cell`` to a scipy.stats reference.
+
+    SPI-k is defined canonically as ``norm.ppf(gamma.cdf(P_k, *gamma_fit))`` applied
+    to a k-month rolling precipitation accumulation. This test feeds a synthetic
+    precipitation series drawn from a known gamma distribution through the module's
+    SPI computation and checks the result against an independent composition of
+    ``scipy.stats.gamma.fit`` + ``gamma.cdf`` + ``norm.ppf`` on the same series.
+
+    Implementation note: the module fits the gamma distribution *per calendar month*
+    (standard SPI practice) and uses a mixed distribution with mass at zero
+    (``H = (1 - q) + q * G``). The reference below mirrors that exact approach rather
+    than a single-window MLE fit, so the comparison validates that the implementation
+    matches the canonical definition without hand-pinning numerical values. Because
+    both paths call the identical scipy primitives, the match is effectively exact;
+    rtol=1e-2 leaves headroom for any gamma-fit numeric drift.
+    """
+    from onsset.climate_calculations import drought_calculation
+    from scipy.stats import gamma, norm
+
+    np.random.seed(42)
+    n_months = 360  # ~30 years of monthly data
+    dates = pd.date_range('1971-01-01', periods=n_months, freq='MS')
+    precip = gamma.rvs(a=2.0, scale=30.0, size=n_months)
+
+    df_cell = pd.DataFrame({'date': dates, 'tp_mm_month': precip})
+
+    scale = 3  # 3-month SPI (typical default)
+    baseline_start = int(dates.min().year)
+    baseline_end = int(dates.max().year)  # baseline window == full series
+
+    spi_df = drought_calculation._compute_spi_for_cell(
+        df_cell,
+        'date',
+        'tp_mm_month',
+        scale,
+        baseline_start,
+        baseline_end,
+        baseline_params=None,  # force the cell-specific gamma fit path
+    )
+
+    # Independent reference: replicate the canonical, month-stratified SPI transform.
+    ref = df_cell.sort_values('date').set_index('date')
+    ref['P_k'] = ref['tp_mm_month'].rolling(window=scale, min_periods=scale).sum()
+    ref['month'] = ref.index.month
+
+    expected = pd.Series(index=ref.index, dtype=float)
+    for m in range(1, 13):
+        series = ref.loc[ref['month'] == m, 'P_k']
+        baseline_values = series.dropna()
+        positive = baseline_values[baseline_values > 0]
+
+        shape, _loc, scale_param = gamma.fit(positive, floc=0)
+        q = len(positive) / len(baseline_values)
+
+        x = series.values
+        x_clipped = np.maximum(x, 0.0001)
+        G = gamma.cdf(x_clipped, shape, loc=0, scale=scale_param)
+        H = (1.0 - q) + q * G
+        H[x <= 0] = (1.0 - q)
+        H = np.clip(H, 1e-6, 1 - 1e-6)
+        expected.loc[series.index] = norm.ppf(H)
+
+    result_spi = spi_df.set_index('date')['spi']
+    expected_aligned = expected.loc[result_spi.index]
+
+    assert not result_spi.empty
+    assert np.allclose(result_spi.to_numpy(), expected_aligned.to_numpy(), rtol=1e-2)
