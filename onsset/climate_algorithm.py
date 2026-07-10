@@ -21,6 +21,7 @@ import logging
 import importlib
 import pkgutil
 import fnmatch
+import warnings
 from enum import Enum
 from typing import List, Dict, Optional, Tuple, Generator, Iterable, Any
 from collections import defaultdict
@@ -699,7 +700,8 @@ def map_risk_to_settlements(
     config: Dict,
     hazard_label_by_name: Optional[Dict[str, str]] = None,
     lat_col: str = 'Y_deg',
-    lon_col: str = 'X_deg'
+    lon_col: str = 'X_deg',
+    allow_neutral_vulnerability: bool = False
 ) -> pd.DataFrame:
     """Map climate risk from admin-3 regions to settlements.
 
@@ -800,9 +802,20 @@ def map_risk_to_settlements(
             vulnerability_values = ((1 - wealth_values) + travel_values) / 2
             settlements_df[SET_CLIMATE_VULNERABILITY] = vulnerability_values
         else:
+            if not allow_neutral_vulnerability:
+                raise ValueError(
+                    "Missing required vulnerability columns: NormalizedRelativeWealth, NormalizedTravelHours "
+                    "(values in [0, 1]). See Climate_README.md for details and accepted column aliases. "
+                    "Pass allow_neutral_vulnerability=True to use a flat 0.5 fallback."
+                )
             # Fallback: if wealth/travel missing, set vulnerability to neutral (0.5)
             vulnerability_values = pd.Series(0.5, index=settlements_df.index)
-            logger.warning("Wealth or travel columns not found; using neutral vulnerability value 0.5")
+            warnings.warn(
+                "Wealth or travel columns not found; using neutral vulnerability value 0.5. "
+                "ClimatePriority will be proportional to Hazard only.",
+                UserWarning,
+                stacklevel=2,
+            )
             settlements_df[SET_CLIMATE_VULNERABILITY] = vulnerability_values
 
         # Compute Climate Priority: Hazard × Vulnerability
@@ -844,7 +857,8 @@ def process_climate_data(
     climate_folder: str,
     admin3_shapefile: str,
     settlements_df: pd.DataFrame,
-    specs_path: Optional[str] = None
+    specs_path: Optional[str] = None,
+    allow_neutral_vulnerability: bool = False
 ) -> pd.DataFrame:
     """Main entry point: process climate data and add hazard outputs to settlements.
 
@@ -937,6 +951,7 @@ def process_climate_data(
         admin3_gdf,
         config,
         hazard_label_by_name=hazard_label_by_name,
+        allow_neutral_vulnerability=allow_neutral_vulnerability,
     )
 
     logger.info("=" * 60)
