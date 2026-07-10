@@ -202,7 +202,8 @@ def discover_hazard_modules() -> List[Any]:
 
     A hazard module is considered valid if it exposes:
       - HAZARD_NAME (str)
-      - calculate_hazard(loader, admin3_gdf, config, detected_columns) -> DataFrame
+            - load_input(loader) -> Any
+            - calculate_hazard(input_data, admin3_gdf, config, detected_columns) -> DataFrame
     CONFIG_SCHEMA and WEIGHT_KEY are optional.
     """
     pkg = None
@@ -241,7 +242,11 @@ def discover_hazard_modules() -> List[Any]:
             logger.warning(f"Failed to import hazard module '{full_name}': {e}")
             continue
 
-        if not hasattr(module, 'HAZARD_NAME') or not hasattr(module, 'calculate_hazard'):
+        if (
+            not hasattr(module, 'HAZARD_NAME')
+            or not hasattr(module, 'load_input')
+            or not hasattr(module, 'calculate_hazard')
+        ):
             continue
         modules.append(module)
 
@@ -727,6 +732,16 @@ def map_risk_to_settlements(
     admin3_id_col = config['admin3_id_column']
     admin3_name_col = config['admin3_name_column']
 
+    # Idempotency: if this function is called multiple times on the same
+    # settlements_df (e.g. in a live notebook kernel), drop columns that will be
+    # re-added to prevent GeoPandas/pandas merge suffix collisions.
+    settlements_df = settlements_df.drop(
+        columns=[admin3_id_col, admin3_name_col, SET_ADMIN3_ID],
+        errors='ignore',
+    )
+    hazard_like = [c for c in settlements_df.columns if str(c).lower().endswith('_hazard')]
+    settlements_df = settlements_df.drop(columns=hazard_like, errors='ignore')
+
     # Convert settlements to GeoDataFrame
     gdf_settlements = gpd.GeoDataFrame(
         settlements_df,
@@ -852,10 +867,11 @@ def map_risk_to_settlements(
 # =============================================================================
 
 def process_climate_data(
-    climate_folder: str,
-    admin3_shapefile: str,
-    settlements_df: pd.DataFrame,
+    climate_folder: Optional[str] = None,
+    admin3_shapefile: Optional[str] = None,
+    settlements_df: Optional[pd.DataFrame] = None,
     specs_path: Optional[str] = None,
+    precomputed_hazards_folder: Optional[str] = None,
     allow_neutral_vulnerability: bool = False
 ) -> pd.DataFrame:
     """Main entry point: process climate data and add hazard outputs to settlements.
@@ -868,10 +884,11 @@ def process_climate_data(
     5. Map hazards to settlements and compute ClimatePriority
 
     Args:
-        climate_folder: Path to folder with climate CSV files.
+        climate_folder: Path to folder with climate CSV files, or None when all hazards are cached.
         admin3_shapefile: Path to admin-3 level shapefile.
         settlements_df: OnSSET settlements DataFrame.
         specs_path: Optional path to specs Excel file for configuration.
+        precomputed_hazards_folder: Optional folder containing per-hazard cache CSVs.
 
     Returns:
         Settlements DataFrame with climate outputs added (naming kept backward compatible):
@@ -885,22 +902,52 @@ def process_climate_data(
     logger.info("Starting climate data processing...")
     logger.info("=" * 60)
 
+    if admin3_shapefile is None or settlements_df is None:
+        raise ValueError('admin3_shapefile and settlements_df are required.')
+
     # Step 1: Discover hazard modules and load configuration (includes hazard schemas)
     hazard_modules = _filter_enabled_hazards(discover_hazard_modules())
     if not hazard_modules:
         raise ValueError('No hazard modules discovered. Expected modules in onsset.climate_calculations.')
     config = load_climate_config(specs_path, hazard_modules=hazard_modules)
 
-    # Step 1b: Strict file requirements (filename-based)
-    all_files = _list_input_files(climate_folder)
+    hazard_plan = []
+    needs_compute = False
     for module in hazard_modules:
         hazard_name = str(getattr(module, 'HAZARD_NAME', '')).strip().lower() or module.__name__
         required = list(getattr(module, 'REQUIRED_FILE_GLOBS', []) or [])
+        raw_label = getattr(module, 'HAZARD_LABEL', None)
+        cache_path = None
+        cache_exists = False
+        if precomputed_hazards_folder is not None:
+            cache_path = os.path.join(precomputed_hazards_folder, f'{hazard_name}_hazard.csv')
+            cache_exists = os.path.exists(cache_path)
+        hazard_plan.append({
+            'module': module,
+            'hazard_name': hazard_name,
+            'hazard_label': _camelize_label(raw_label) if raw_label else _camelize_label(hazard_name),
+            'required_globs': required,
+            'cache_path': cache_path,
+            'cache_exists': cache_exists,
+        })
+        needs_compute = needs_compute or not cache_exists
+
+    if needs_compute and climate_folder is None:
+        raise ValueError(
+            'climate_folder is required when at least one hazard does not have a cached per-hazard CSV.'
+        )
+
+    # Step 1b: Strict file requirements (filename-based)
+    all_files = _list_input_files(climate_folder) if needs_compute else []
+    for spec in hazard_plan:
+        if spec['cache_exists']:
+            logger.info(f"Using cached hazard for {spec['hazard_name']} from {spec['cache_path']}")
+            continue
         _require_any_file(
             folder_path=climate_folder,
             all_files=all_files,
-            hazard_name=hazard_name,
-            required_globs=required,
+            hazard_name=spec['hazard_name'],
+            required_globs=spec['required_globs'],
         )
 
     # Step 2: Load admin-3 boundaries
@@ -911,11 +958,12 @@ def process_climate_data(
     logger.info(f"Loaded {len(admin3_gdf)} admin-3 regions")
 
     # Step 3: Initialize loader and classify files (strict: filename-based)
-    loader = ClimateDataLoader(climate_folder, config)
+    loader = ClimateDataLoader(climate_folder, config) if needs_compute else None
 
-    # Get available data combinations (temporal resolution x data type)
-    available = loader.get_available_combinations()
-    logger.info(f"Available data combinations: {[(t.value, d.value) for t, d in available]}")
+    if loader is not None:
+        # Get available data combinations (temporal resolution x data type)
+        available = loader.get_available_combinations()
+        logger.info(f"Available data combinations: {[(t.value, d.value) for t, d in available]}")
 
     # Column mapping is strict: use configured column names.
     detected_columns: Dict[str, str] = {
@@ -928,15 +976,28 @@ def process_climate_data(
     if 'precip_column' in config and config['precip_column'] is not None:
         detected_columns['precipitation'] = config['precip_column']
 
+    if precomputed_hazards_folder is not None and needs_compute:
+        os.makedirs(precomputed_hazards_folder, exist_ok=True)
+
     # Step 4: Run all enabled hazard modules (fail-fast on missing inputs)
     hazard_dfs: List[pd.DataFrame] = []
     hazard_label_by_name: Dict[str, str] = {}
-    for module in hazard_modules:
-        hazard_name = str(getattr(module, 'HAZARD_NAME', '')).strip().lower()
-        raw_label = getattr(module, 'HAZARD_LABEL', None)
-        hazard_label_by_name[hazard_name] = _camelize_label(raw_label) if raw_label else _camelize_label(hazard_name)
-        logger.info(f"Running hazard module: {hazard_name}")
-        df = module.calculate_hazard(loader, admin3_gdf, config, detected_columns)
+    for spec in hazard_plan:
+        module = spec['module']
+        hazard_name = spec['hazard_name']
+        hazard_label_by_name[hazard_name] = spec['hazard_label']
+        cache_path = spec['cache_path']
+
+        if spec['cache_exists']:
+            logger.info(f"Loading cached hazard CSV for {hazard_name}: {cache_path}")
+            df = pd.read_csv(cache_path)
+        else:
+            logger.info(f"Running hazard module: {hazard_name}")
+            input_data = module.load_input(loader)
+            df = module.calculate_hazard(input_data, admin3_gdf, config, detected_columns)
+            if precomputed_hazards_folder is not None:
+                df.to_csv(cache_path, index=False)
+                logger.info(f"Saved cached hazard CSV for {hazard_name}: {cache_path}")
         hazard_dfs.append(df)
 
     # Step 5: Calculate compound hazard across all returned hazards

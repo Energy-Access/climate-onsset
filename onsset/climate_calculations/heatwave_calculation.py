@@ -11,7 +11,7 @@ normalized to 0-1. The compound risk combination happens in climate_algorithm.py
 
 import logging
 from collections import defaultdict
-from typing import Dict, TYPE_CHECKING
+from typing import Any, Callable, Dict, TYPE_CHECKING
 
 import pandas as pd
 import numpy as np
@@ -76,8 +76,18 @@ CONFIG_SCHEMA = {
 }
 
 
+def load_input(loader) -> Any:
+    if not hasattr(loader, 'has_daily_temp_data') or not loader.has_daily_temp_data():
+        raise ValueError(
+            "Heatwave hazard requires daily temperature data. "
+            "Ensure climate files are detectable as daily temperature."
+        )
+    # Return an iterator FACTORY (callable) so the module can iterate fresh each time
+    return loader.iter_daily_temp_files
+
+
 def calculate_hazard(
-    loader: 'ClimateDataLoader',
+    daily_temp_iter_factory: Callable,
     admin3_gdf: gpd.GeoDataFrame,
     config: Dict,
     detected_columns: Dict[str, str],
@@ -95,13 +105,7 @@ def calculate_hazard(
     admin3_id_col = config['admin3_id_column']
     admin3_name_col = config['admin3_name_column']
 
-    if not hasattr(loader, 'has_daily_temp_data') or not loader.has_daily_temp_data():
-        raise ValueError(
-            "Heatwave hazard requires daily temperature data. "
-            "Ensure climate files are detectable as daily temperature (by filename keywords or content)."
-        )
-
-    df_risk = calculate_heatwave_risk_incremental(loader, admin3_gdf, config, detected_columns)
+    df_risk = calculate_heatwave_risk_incremental(daily_temp_iter_factory, admin3_gdf, config, detected_columns)
     if df_risk.empty or 'heatwave_risk' not in df_risk.columns:
         raise ValueError('Heatwave hazard could not be computed (empty result).')
 
@@ -279,7 +283,7 @@ def calculate_heatwave_risk(
 
 
 def calculate_heatwave_risk_incremental(
-    loader: 'ClimateDataLoader',
+    daily_temp_iter_factory: Callable,
     admin3_gdf: gpd.GeoDataFrame,
     config: Dict,
     detected_columns: Dict[str, str]
@@ -290,7 +294,7 @@ def calculate_heatwave_risk_incremental(
     loading all data into memory at once.
 
     Args:
-        loader: ClimateDataLoader instance with classified files.
+        daily_temp_iter_factory: Callable returning an iterator over (filename, DataFrame).
         admin3_gdf: GeoDataFrame with admin-3 boundaries.
         config: Configuration dictionary.
         detected_columns: Dict mapping standard names to actual column names.
@@ -324,7 +328,7 @@ def calculate_heatwave_risk_incremental(
 
     files_processed = 0
 
-    for filename, df in loader.iter_daily_temp_files():
+    for filename, df in daily_temp_iter_factory():
         if temp_col is None:
             # Auto-detect from first file
             for col in df.columns:

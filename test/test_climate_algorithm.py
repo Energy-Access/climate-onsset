@@ -13,6 +13,7 @@ from onsset.climate_algorithm import (
     SET_NORMALIZED_CLIMATE_HAZARD,
     calculate_compound_hazard,
     map_risk_to_settlements,
+    process_climate_data,
 )
 
 
@@ -109,6 +110,27 @@ def test_neutral_vulnerability_opt_in():
     ).all()
 
 
+def test_map_risk_idempotent():
+    settlements_df, risk_df, admin3_gdf, config = _build_inputs()
+
+    first = map_risk_to_settlements(
+        settlements_df.copy(),
+        risk_df,
+        admin3_gdf,
+        config,
+    )
+
+    second = map_risk_to_settlements(
+        first.copy(),
+        risk_df,
+        admin3_gdf,
+        config,
+    )
+
+    assert SET_CLIMATE_PRIORITY in second.columns
+    assert np.isclose(second[SET_CLIMATE_PRIORITY], first[SET_CLIMATE_PRIORITY]).all()
+
+
 def test_compound_hazard_pipeline():
     settlements_df, _, admin3_gdf, config = _build_inputs()
 
@@ -161,3 +183,58 @@ def test_compound_hazard_pipeline():
     assert result.columns.tolist().count('compound_hazard') == 1
     assert SET_NORMALIZED_CLIMATE_HAZARD in result.columns
     assert SET_ADMIN3_ID in result.columns
+
+
+def test_process_climate_data_with_cached_hazards(tmp_path):
+    settlements_df = pd.DataFrame(
+        {
+            'X_deg': [0.2, 0.3, 2.2, 2.7],
+            'Y_deg': [0.2, 0.7, 0.2, 0.7],
+            'NormalizedRelativeWealth': [0.05, 0.25, 0.15, 0.95],
+            'NormalizedTravelHours': [0.90, 0.70, 0.80, 0.20],
+        }
+    )
+
+    admin3_gdf = gpd.GeoDataFrame(
+        {
+            'GID_3': [1, 2],
+            'NAME_3': ['A', 'B'],
+            'geometry': [
+                Polygon([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]),
+                Polygon([(2.0, 0.0), (3.0, 0.0), (3.0, 1.0), (2.0, 1.0)]),
+            ],
+        },
+        crs='EPSG:4326',
+    )
+    admin3_shapefile = tmp_path / 'admin3.shp'
+    admin3_gdf.to_file(admin3_shapefile)
+
+    pd.DataFrame(
+        {
+            'GID_3': [1, 2],
+            'NAME_3': ['A', 'B'],
+            'heatwave_hazard': [0.2, 0.8],
+        }
+    ).to_csv(tmp_path / 'heatwave_hazard.csv', index=False)
+    pd.DataFrame(
+        {
+            'GID_3': [1, 2],
+            'NAME_3': ['A', 'B'],
+            'drought_hazard': [0.1, 0.6],
+        }
+    ).to_csv(tmp_path / 'drought_hazard.csv', index=False)
+
+    result = process_climate_data(
+        climate_folder=None,
+        admin3_shapefile=str(admin3_shapefile),
+        settlements_df=settlements_df,
+        precomputed_hazards_folder=str(tmp_path),
+    )
+
+    assert SET_CLIMATE_PRIORITY in result.columns
+    assert result[SET_CLIMATE_PRIORITY].notna().all()
+    assert result[SET_CLIMATE_PRIORITY].nunique() > 1
+    assert np.isclose(
+        result[SET_CLIMATE_PRIORITY],
+        result[SET_CLIMATE_HAZARD] * result[SET_CLIMATE_VULNERABILITY],
+    ).all()
